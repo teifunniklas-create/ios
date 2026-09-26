@@ -50,11 +50,16 @@ jobs:
           cp /tmp/icon-1024.png "$ICONSET/icon-1024.png"
           echo "Icon-Dateien erzeugt: $(ls $ICONSET | wc -l)"
 
-      - name: Deployment-Target absichern (verhindert Signing-Konflikte)
+      - name: Version + Anzeigename absichern (verhindert Signing-Konflikte)
         run: |
           cd ios/App
           plutil -replace CFBundleShortVersionString -string "1.0.0" App/Info.plist
           plutil -replace CFBundleVersion -string "1" App/Info.plist
+          # Homescreen-Name explizit setzen, unabhängig davon, ob Capacitor
+          # das aus capacitor.config.json bereits korrekt übernommen hat.
+          # Der Ordner-/Executable-Name (App.app / App) bleibt davon unberührt.
+          plutil -replace CFBundleDisplayName -string "Filmtagebuch" App/Info.plist
+          plutil -replace CFBundleName -string "Filmtagebuch" App/Info.plist
 
       - name: Unsigniertes Archive bauen
         run: |
@@ -80,8 +85,25 @@ jobs:
             find "$RUNNER_TEMP/App.xcarchive" -maxdepth 4
             exit 1
           fi
+          # WICHTIG: Der .app-Ordner darf beim Kopieren NICHT umbenannt werden.
+          # CFBundleExecutable in Info.plist zeigt exakt auf "App" (den Namen
+          # des ausführbaren Binaries) — benennt man den Ordner z. B. zu
+          # "Filmtagebuch.app" um, sucht iOS beim Start nach einem Executable
+          # "Filmtagebuch" im Bundle und findet nur "App". Genau das erzeugt
+          # den Fehler "App konnte nicht installiert werden" beim Öffnen.
+          # Der angezeigte Name auf dem Homescreen kommt ohnehin aus
+          # CFBundleDisplayName (gesetzt über capacitor.config.json), nicht
+          # aus dem Ordnernamen.
           mkdir -p "$RUNNER_TEMP/Payload"
-          cp -r "$APP_PATH" "$RUNNER_TEMP/Payload/Filmtagebuch.app"
+          cp -r "$APP_PATH" "$RUNNER_TEMP/Payload/App.app"
+          echo "Info.plist-Check (CFBundleExecutable und CFBundleDisplayName):"
+          plutil -p "$RUNNER_TEMP/Payload/App.app/Info.plist" | grep -E "CFBundleExecutable|CFBundleDisplayName|CFBundleIdentifier"
+          EXEC_NAME=$(plutil -extract CFBundleExecutable raw "$RUNNER_TEMP/Payload/App.app/Info.plist")
+          if [ ! -f "$RUNNER_TEMP/Payload/App.app/$EXEC_NAME" ]; then
+            echo "FEHLER: Executable '$EXEC_NAME' fehlt im Bundle — Build ist kaputt."
+            exit 1
+          fi
+          echo "Executable '$EXEC_NAME' gefunden ✓"
           cd "$RUNNER_TEMP"
           zip -r Filmtagebuch-unsigned.ipa Payload
           mkdir -p "${{ github.workspace }}/dist"
