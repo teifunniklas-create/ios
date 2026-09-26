@@ -1,0 +1,95 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Xcode-Version anzeigen
+        run: xcodebuild -version
+
+      - name: npm-Abhängigkeiten installieren
+        run: npm install
+
+      - name: iOS-Plattform zum Capacitor-Projekt hinzufügen
+        run: npx cap add ios
+
+      - name: Web-Inhalt mit dem iOS-Projekt synchronisieren
+        run: npx cap sync ios
+
+      - name: App-Icon einsetzen
+        run: |
+          brew list imagemagick &>/dev/null || brew install imagemagick
+          ICONSET="ios/App/App/Assets.xcassets/AppIcon.appiconset"
+          mkdir -p "$ICONSET"
+          declare -a SIZES=(20 29 40 60 76 83.5 1024)
+          declare -a SCALES=(1 2 3)
+          magick icon-source.png -resize 1024x1024 /tmp/icon-1024.png
+          # Erzeuge alle von Apple erwarteten Icon-Größen aus der 1024er-Quelle
+          for size in 20 29 40 60 76 83.5; do
+            for scale in 1 2 3; do
+              px=$(python3 -c "print(int(round($size * $scale)))")
+              out="$ICONSET/icon-${size}@${scale}x.png"
+              magick /tmp/icon-1024.png -resize ${px}x${px} "$out" || true
+            done
+          done
+          cp /tmp/icon-1024.png "$ICONSET/icon-1024.png"
+          echo "Icon-Dateien erzeugt: $(ls $ICONSET | wc -l)"
+
+      - name: Deployment-Target absichern (verhindert Signing-Konflikte)
+        run: |
+          cd ios/App
+          plutil -replace CFBundleShortVersionString -string "1.0.0" App/Info.plist
+          plutil -replace CFBundleVersion -string "1" App/Info.plist
+
+      - name: Unsigniertes Archive bauen
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PRODUCT_BUNDLE_IDENTIFIER=com.filmtagebuch.app \
+            archive
+
+      - name: Payload-Struktur bauen und zur IPA packen
+        run: |
+          set -e
+          APP_PATH="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App.app wurde nicht gefunden — Archive-Inhalt zur Fehlersuche:"
+            find "$RUNNER_TEMP/App.xcarchive" -maxdepth 4
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -r "$APP_PATH" "$RUNNER_TEMP/Payload/Filmtagebuch.app"
+          cd "$RUNNER_TEMP"
+          zip -r Filmtagebuch-unsigned.ipa Payload
+          mkdir -p "${{ github.workspace }}/dist"
+          cp Filmtagebuch-unsigned.ipa "${{ github.workspace }}/dist/"
+
+      - name: IPA als Build-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Filmtagebuch-unsigned-ipa
+          path: dist/Filmtagebuch-unsigned.ipa
+          retention-days: 30
