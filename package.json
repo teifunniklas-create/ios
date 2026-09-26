@@ -1,0 +1,16 @@
+{
+  "name": "filmtagebuch-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Filmtagebuch als native iOS-App (Capacitor-Wrapper um die bestehende Web-App)",
+  "scripts": {
+    "sync": "npx cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

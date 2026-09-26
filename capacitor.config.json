@@ -1,0 +1,15 @@
+{
+  "appId": "com.filmtagebuch.app",
+  "appName": "Filmtagebuch",
+  "webDir": "www",
+  "backgroundColor": "#08080b",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#08080b"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "cleartext": false
+  }
+}
